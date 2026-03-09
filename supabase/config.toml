@@ -1,0 +1,7 @@
+project_id = "mbkxjgjpnpzosjalayrr"
+
+[functions.share]
+verify_jwt = false
+
+[functions.og-image]
+verify_jwt = false

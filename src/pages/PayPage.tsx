@@ -1,0 +1,185 @@
+import { useSearchParams } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { parseUnits } from 'viem'
+import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
+import { arcTestnet } from '@/lib/arcChain'
+import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign } from 'lucide-react'
+import Confetti from 'react-confetti'
+
+const OG_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/og-image`
+
+const PayPage = () => {
+  const [searchParams] = useSearchParams()
+  const to = searchParams.get('to') as `0x${string}` | null
+  const amount = searchParams.get('amount')
+  const [memo, setMemo] = useState('')
+  const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
+
+  const { address, isConnected } = useAccount()
+  const { connect, connectors, isPending: isConnecting } = useConnect()
+  const { writeContract, data: txHash, isPending: isSending } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
+  useEffect(() => {
+    if (to && amount) {
+      const ogUrl = `${OG_FUNCTION_URL}?amount=${amount}&to=${to}`
+      const setMeta = (property: string, content: string) => {
+        let el = document.querySelector(`meta[property="${property}"]`)
+        if (!el) {
+          el = document.createElement('meta')
+          el.setAttribute('property', property)
+          document.head.appendChild(el)
+        }
+        el.setAttribute('content', content)
+      }
+      setMeta('og:image', ogUrl)
+      setMeta('og:title', `Pay ${parseFloat(amount).toFixed(2)} USDC on Arc`)
+      setMeta('og:description', `Payment request for ${parseFloat(amount).toFixed(2)} USDC on Arc Testnet`)
+      document.title = `Pay ${parseFloat(amount).toFixed(2)} USDC | Arc Pay-Link`
+    }
+  }, [to, amount])
+
+  useEffect(() => {
+    const onResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight })
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  if (!to || !amount) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="glass-card rounded-xl p-8 text-center max-w-sm space-y-3">
+          <p className="text-foreground font-semibold">Invalid Payment Link</p>
+          <p className="text-muted-foreground text-sm">This link is missing required parameters.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handlePay = () => {
+    writeContract({
+      address: USDC_ADDRESS,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [to, parseUnits(amount, 6)],
+      chain: arcTestnet,
+      account: address,
+    })
+  }
+
+  const shortAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative">
+      {isSuccess && <Confetti width={windowSize.w} height={windowSize.h} recycle={false} numberOfPieces={400} />}
+
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center space-y-1">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Payment Request</p>
+          <h1 className="text-4xl font-bold gradient-text">{parseFloat(amount).toFixed(2)} USDC</h1>
+          <p className="text-sm text-muted-foreground">
+            to <span className="text-foreground font-mono">{shortAddr(to)}</span>
+          </p>
+        </div>
+
+        {isSuccess ? (
+          <div className="glass-card rounded-xl p-6 space-y-4 shadow-glow-lg animate-in fade-in zoom-in-95 duration-500 border-green-500/30">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-green-500/20 p-2">
+                <CheckCircle2 size={24} className="text-green-400" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Payment Complete!</p>
+                <p className="text-xs text-muted-foreground">Transaction confirmed on Arc Testnet</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-sm border-t border-border pt-4">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="text-foreground font-semibold">{parseFloat(amount).toFixed(2)} USDC</span>
+              </div>
+              {memo && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Memo</span>
+                  <span className="text-foreground">{memo}</span>
+                </div>
+              )}
+            </div>
+
+            <a
+              href={`https://testnet.arcscan.app/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full rounded-lg border border-border bg-secondary py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              View on Explorer
+              <ExternalLink size={14} />
+            </a>
+          </div>
+        ) : (
+          <div className="glass-card rounded-xl p-6 space-y-5 shadow-glow-lg">
+            <div className="flex items-center gap-3 rounded-lg bg-secondary p-3 border border-border">
+              <DollarSign size={18} className="text-muted-foreground" />
+              <div>
+                <p className="text-xs text-muted-foreground">You're paying</p>
+                <p className="text-foreground font-semibold">{parseFloat(amount).toFixed(2)} USDC</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                <MessageSquare size={14} />
+                Memo <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="For the pizza 🍕"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                className="w-full rounded-lg border border-border bg-secondary px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+              />
+            </div>
+
+            {!isConnected ? (
+              <button
+                onClick={() => connect({ connector: connectors[0] })}
+                disabled={isConnecting}
+                className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
+              >
+                {isConnecting ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Wallet size={18} />
+                )}
+                {isConnecting ? 'Connecting...' : 'Connect Wallet'}
+              </button>
+            ) : (
+              <button
+                onClick={handlePay}
+                disabled={isSending || isConfirming}
+                className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
+              >
+                {(isSending || isConfirming) && <Loader2 size={18} className="animate-spin" />}
+                {isSending ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : `Pay ${parseFloat(amount).toFixed(2)} USDC`}
+              </button>
+            )}
+
+            {isConnected && (
+              <p className="text-center text-xs text-muted-foreground">
+                Connected: <span className="font-mono text-foreground">{shortAddr(address!)}</span>
+              </p>
+            )}
+          </div>
+        )}
+
+        <p className="text-center text-xs text-muted-foreground">
+          Powered by <span className="gradient-text font-semibold">Arc Testnet</span>
+        </p>
+      </div>
+    </div>
+  )
+}
+
+export default PayPage
