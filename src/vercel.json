@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/share",
+      "destination": "https://mbkxjgjpnpzosjalayrr.supabase.co/functions/v1/share"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

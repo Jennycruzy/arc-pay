@@ -9,7 +9,8 @@ const CreatePage = () => {
   const [generated, setGenerated] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const shareUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/share?to=${address}&amount=${amount}`
+  // Explicitly using your Vercel domain
+  const shareUrl = `https://arc-pay-link.vercel.app/api/share?to=${address}&amount=${amount}`
   const payUrl = shareUrl
   const isValid = address.startsWith('0x') && address.length === 42 && parseFloat(amount) > 0
 
