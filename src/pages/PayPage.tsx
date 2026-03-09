@@ -1,10 +1,10 @@
 import { useSearchParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
 import { parseUnits } from 'viem'
 import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
-import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign } from 'lucide-react'
+import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle } from 'lucide-react'
 import Confetti from 'react-confetti'
 
 const OG_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/og-image`
@@ -16,10 +16,17 @@ const PayPage = () => {
   const [memo, setMemo] = useState('')
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
 
-  const { address, isConnected } = useAccount()
+  // 1. Added chainId to check current network
+  const { address, isConnected, chainId } = useAccount()
   const { connect, connectors, isPending: isConnecting } = useConnect()
-  const { writeContract, data: txHash, isPending: isSending } = useWriteContract()
+  // 2. Added useSwitchChain hook
+  const { switchChain, isPending: isSwitching } = useSwitchChain()
+  // 3. Added error extraction from useWriteContract
+  const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+
+  // Check if connected but on the wrong network
+  const isWrongChain = isConnected && chainId !== arcTestnet.id
 
   useEffect(() => {
     if (to && amount) {
@@ -69,6 +76,9 @@ const PayPage = () => {
   }
 
   const shortAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`
+
+  // Format the error message to be readable
+  const errorMessage = txError ? (txError as any).shortMessage || txError.message : null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 relative">
@@ -142,6 +152,15 @@ const PayPage = () => {
               />
             </div>
 
+            {/* Error Display Box */}
+            {errorMessage && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs break-words animate-in fade-in">
+                <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                <p>{errorMessage}</p>
+              </div>
+            )}
+
+            {/* Dynamic Button Rendering */}
             {!isConnected ? (
               <button
                 onClick={() => connect({ connector: connectors[0] })}
@@ -155,6 +174,15 @@ const PayPage = () => {
                 )}
                 {isConnecting ? 'Connecting...' : 'Connect Wallet'}
               </button>
+            ) : isWrongChain ? (
+              <button
+                onClick={() => switchChain({ chainId: arcTestnet.id })}
+                disabled={isSwitching}
+                className="w-full bg-yellow-500/10 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500/20 font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60"
+              >
+                {isSwitching && <Loader2 size={18} className="animate-spin" />}
+                {isSwitching ? 'Switching...' : 'Switch to Arc Testnet'}
+              </button>
             ) : (
               <button
                 onClick={handlePay}
@@ -167,7 +195,7 @@ const PayPage = () => {
             )}
 
             {isConnected && (
-              <p className="text-center text-xs text-muted-foreground">
+              <p className="text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
                 Connected: <span className="font-mono text-foreground">{shortAddr(address!)}</span>
               </p>
             )}
