@@ -1,0 +1,99 @@
+import { useState } from 'react';
+import { supabaseAltClient } from '@/utils/supabaseAltClient';
+
+export interface PaymentLinkData {
+    id?: string;
+    receiver_wallet: string;
+    amount: number;
+    expires_at?: string | null;
+    max_uses?: number | null;
+    current_uses?: number;
+    group_id?: string | null;
+    created_at?: string;
+}
+
+export function usePaymentLinks() {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const createLinks = async (links: PaymentLinkData[]) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { data, error: sbError } = await supabaseAltClient
+                .from('payment_links')
+                .insert(links)
+                .select();
+
+            if (sbError) throw sbError;
+            return data;
+        } catch (err: any) {
+            console.error('Error creating links:', err);
+            setError(err.message);
+            return null;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getLink = async (id: string): Promise<PaymentLinkData | null> => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { data, error: sbError } = await supabaseAltClient
+                .from('payment_links')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (sbError) throw sbError;
+            return data;
+        } catch (err: any) {
+            console.error('Error fetching link:', err);
+            setError(err.message);
+            return null;
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getLinksByGroup = async (groupId: string): Promise<PaymentLinkData[]> => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { data, error: sbError } = await supabaseAltClient
+                .from('payment_links')
+                .select('*')
+                .eq('group_id', groupId)
+                .order('created_at', { ascending: false });
+
+            if (sbError) throw sbError;
+            return data || [];
+        } catch (err: any) {
+            console.error('Error fetching links by group:', err);
+            setError(err.message);
+            return [];
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const incrementUsage = async (id: string, currentUses: number) => {
+        try {
+            const { data, error: sbError } = await supabaseAltClient
+                .from('payment_links')
+                .update({ current_uses: currentUses + 1 })
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (sbError) throw sbError;
+            return data;
+        } catch (err: any) {
+            console.error('Error incrementing usage:', err);
+            return null;
+        }
+    };
+
+    return { createLinks, getLink, getLinksByGroup, incrementUsage, loading, error };
+}

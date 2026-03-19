@@ -1,20 +1,36 @@
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
 import { parseUnits } from 'viem'
 import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
-import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle } from 'lucide-react'
+import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
 import Confetti from 'react-confetti'
+import { usePaymentLinks } from '@/hooks/usePaymentLinks'
+import { useReceipts } from '@/hooks/useReceipts'
+import { toast } from 'sonner'
 
 const OG_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/og-image`
 
 const PayPage = () => {
   const [searchParams] = useSearchParams()
-  const to = searchParams.get('to') as `0x${string}` | null
-  const amount = searchParams.get('amount')
+  const navigate = useNavigate()
+
+  const linkId = searchParams.get('link')
+  const fallbackTo = searchParams.get('to') as `0x${string}` | null
+  const fallbackAmount = searchParams.get('amount')
+
+  const [to, setTo] = useState<`0x${string}` | null>(fallbackTo)
+  const [amount, setAmount] = useState<string | null>(fallbackAmount)
+  const [dbLinkError, setDbLinkError] = useState<string | null>(null)
+  const [currentUses, setCurrentUses] = useState(0)
+  const [isLoadingLink, setIsLoadingLink] = useState(!!linkId)
+
   const [memo, setMemo] = useState('')
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
+
+  const { getLink, incrementUsage } = usePaymentLinks()
+  const { createReceipt } = useReceipts()
 
   // 1. Added chainId to check current network
   const { address, isConnected, chainId } = useAccount()
@@ -25,8 +41,41 @@ const PayPage = () => {
   const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
+  useEffect(() => {
+    if (txError) {
+      const errorMessage = (txError as any).shortMessage || txError.message;
+      toast.error(errorMessage || 'Transaction failed');
+    }
+  }, [txError]);
+
   // Check if connected but on the wrong network
   const isWrongChain = isConnected && chainId !== arcTestnet.id
+
+  useEffect(() => {
+    const fetchLinkData = async () => {
+      if (linkId) {
+        setIsLoadingLink(true)
+        const linkData = await getLink(linkId);
+        if (linkData) {
+          if (linkData.expires_at && new Date(linkData.expires_at) < new Date()) {
+            setDbLinkError('This payment link has expired.');
+            setIsLoadingLink(false); return;
+          }
+          if (linkData.max_uses !== null && linkData.current_uses !== undefined && linkData.current_uses >= linkData.max_uses) {
+            setDbLinkError('This payment link has reached its maximum number of uses.');
+            setIsLoadingLink(false); return;
+          }
+          setTo(linkData.receiver_wallet as `0x${string}`);
+          setAmount(linkData.amount.toString());
+          setCurrentUses(linkData.current_uses || 0);
+        } else {
+          setDbLinkError('Payment link not found.');
+        }
+        setIsLoadingLink(false)
+      }
+    };
+    fetchLinkData();
+  }, [linkId]);
 
   useEffect(() => {
     if (to && amount) {
@@ -53,12 +102,48 @@ const PayPage = () => {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  if (!to || !amount) {
+  const [receiptGenerated, setReceiptGenerated] = useState(false)
+  const [receiptId, setReceiptId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isSuccess && !receiptGenerated && to && amount && txHash && address) {
+      setReceiptGenerated(true);
+      const logPayment = async () => {
+        if (linkId) {
+          await incrementUsage(linkId, currentUses);
+        }
+
+        const receipt = await createReceipt({
+          sender: address,
+          receiver: to,
+          amount: parseFloat(amount),
+          tx_hash: txHash,
+          status: 'paid'
+        });
+
+        if (receipt) {
+          setReceiptId(receipt.id);
+        }
+      };
+
+      logPayment();
+    }
+  }, [isSuccess, receiptGenerated, to, amount, txHash, linkId, address, currentUses]);
+
+  if (isLoadingLink) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Loader2 className="animate-spin text-primary" size={32} />
+      </div>
+    )
+  }
+
+  if (dbLinkError || !to || !amount) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card rounded-xl p-8 text-center max-w-sm space-y-3">
           <p className="text-foreground font-semibold">Invalid Payment Link</p>
-          <p className="text-muted-foreground text-sm">This link is missing required parameters.</p>
+          <p className="text-muted-foreground text-sm">{dbLinkError || 'This link is missing required parameters.'}</p>
         </div>
       </div>
     )
@@ -118,15 +203,26 @@ const PayPage = () => {
               )}
             </div>
 
-            <a
-              href={`https://testnet.arcscan.app/tx/${txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full rounded-lg border border-border bg-secondary py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              View on Explorer
-              <ExternalLink size={14} />
-            </a>
+            <div className="flex flex-col gap-3">
+              <a
+                href={`https://testnet.arcscan.app/tx/${txHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full rounded-lg border border-border bg-secondary py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                View on Explorer
+                <ExternalLink size={14} />
+              </a>
+              {receiptId && (
+                <Link
+                  to={`/receipt/${receiptId}`}
+                  className="flex items-center justify-center gap-2 w-full rounded-lg border border-primary/20 bg-primary/10 py-2.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
+                >
+                  View Digital Receipt
+                  <ReceiptIcon size={14} />
+                </Link>
+              )}
+            </div>
           </div>
         ) : (
           <div className="glass-card rounded-xl p-6 space-y-5 shadow-glow-lg">
