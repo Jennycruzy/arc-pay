@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link2, Copy, Check, QrCode, ArrowRight, Send, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import QRCode from 'react-qr-code'
@@ -8,13 +8,23 @@ import { useNavigate } from 'react-router-dom'
 
 const CreatePage = () => {
   const navigate = useNavigate()
-  const { createLinks, loading: isCreatingLinks } = usePaymentLinks()
+  const { createLinks, loading: isCreatingLinks, error: createError } = usePaymentLinks()
 
   const [address, setAddress] = useState('')
   const [amount, setAmount] = useState('')
   const [generated, setGenerated] = useState(false)
   const [copied, setCopied] = useState(false)
   const [generatedLinkId, setGeneratedLinkId] = useState<string | null>(null)
+
+  const generatedCardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (generated && generatedCardRef.current) {
+      setTimeout(() => {
+        generatedCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 100)
+    }
+  }, [generated])
 
   const [splitAmounts, setSplitAmounts] = useState<number[]>([])
   const [isSplitMode, setIsSplitMode] = useState(false)
@@ -53,6 +63,8 @@ const CreatePage = () => {
           setGeneratedLinkId(data[0].id);
           setGenerated(true);
         }
+      } else {
+        toast.error("Failed to generate link. Check database connection or constraints.");
       }
     } else {
       setGeneratedLinkId(null);
@@ -141,7 +153,7 @@ const CreatePage = () => {
         </div>
 
         {generated && (
-          <div className="glass-card rounded-xl p-6 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div ref={generatedCardRef} className="glass-card rounded-xl p-6 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Your Pay-Link</label>
               <div className="flex items-center gap-2">
