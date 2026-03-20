@@ -1,9 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { createClient } from "npm:@supabase/supabase-js@2"
 
 const CRAWLER_UA = /bot|crawl|spider|facebookexternalhit|Twitterbot|TelegramBot|Slackbot|LinkedInBot|Discordbot|WhatsApp|Googlebot/i
 const APP_ORIGIN = Deno.env.get('APP_ORIGIN') || ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || ''
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
 const OG_IMAGE_URL = `${SUPABASE_URL}/functions/v1/og-image`
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,11 +20,28 @@ Deno.serve(async (req) => {
   }
 
   const url = new URL(req.url)
-  const to = url.searchParams.get('to') || ''
-  const amount = url.searchParams.get('amount') || '0'
+  let to = url.searchParams.get('to') || ''
+  let amount = url.searchParams.get('amount') || '0'
+  const linkId = url.searchParams.get('link')
   const ua = req.headers.get('user-agent') || ''
 
-  const spaUrl = `${APP_ORIGIN}/pay?to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`
+  if (linkId && (!to || amount === '0')) {
+    const { data } = await supabase
+      .from('payment_links')
+      .select('receiver_wallet, amount')
+      .eq('id', linkId)
+      .single()
+
+    if (data) {
+      to = data.receiver_wallet
+      amount = data.amount.toString()
+    }
+  }
+
+  const spaUrl = linkId
+    ? `${APP_ORIGIN}/pay?link=${encodeURIComponent(linkId)}&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`
+    : `${APP_ORIGIN}/pay?to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amount)}`
+
   const ogImageUrl = `${OG_IMAGE_URL}?amount=${encodeURIComponent(amount)}&to=${encodeURIComponent(to)}`
   const displayAmount = parseFloat(amount).toFixed(2)
   const shortAddr = to ? `${to.slice(0, 6)}...${to.slice(-4)}` : ''
