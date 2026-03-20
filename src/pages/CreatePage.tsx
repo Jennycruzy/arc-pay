@@ -30,6 +30,8 @@ const CreatePage = () => {
   const [isSplitMode, setIsSplitMode] = useState(false)
   const [expiresAt, setExpiresAt] = useState('')
   const [maxUses, setMaxUses] = useState('')
+  const [splitExpiresAt, setSplitExpiresAt] = useState<string[]>([])
+  const [splitMaxUses, setSplitMaxUses] = useState<string[]>([])
 
   // Explicitly using your Vercel domain for legacy links
   const shareUrl = `https://arc-pay-link.vercel.app/api/share?to=${address}&amount=${amount}`
@@ -45,14 +47,24 @@ const CreatePage = () => {
       const groupId = crypto.randomUUID();
       const amountsToCreate = isSplitMode ? splitAmounts : [parseFloat(amount)];
 
-      const linksToCreate = amountsToCreate.map(amt => ({
-        receiver_wallet: address,
-        amount: amt,
-        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
-        max_uses: maxUses ? parseInt(maxUses) : null,
-        current_uses: 0,
-        group_id: isSplitMode ? groupId : null,
-      }));
+      const linksToCreate = amountsToCreate.map((amt, index) => {
+        let currentExpiresAt = expiresAt;
+        let currentMaxUses = maxUses;
+
+        if (isSplitMode) {
+          currentExpiresAt = splitExpiresAt[index] || '';
+          currentMaxUses = splitMaxUses[index] || '';
+        }
+
+        return {
+          receiver_wallet: address,
+          amount: amt,
+          expires_at: currentExpiresAt ? new Date(currentExpiresAt).toISOString() : null,
+          max_uses: currentMaxUses ? parseInt(currentMaxUses) : null,
+          current_uses: 0,
+          group_id: isSplitMode ? groupId : null,
+        };
+      });
 
       const data = await createLinks(linksToCreate);
       if (data && data.length > 0) {
@@ -83,7 +95,7 @@ const CreatePage = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold gradient-text">Arc Pay-Link</h1>
+          <h1 className="text-3xl font-bold gradient-text">Arc Pay Link</h1>
           <p className="text-muted-foreground text-sm">
             Create a shareable payment link for USDC on Arc Testnet
           </p>
@@ -118,28 +130,79 @@ const CreatePage = () => {
 
           <SplitInput onSplitChange={(amounts, isModeActive) => { setSplitAmounts(amounts); setIsSplitMode(isModeActive); setGenerated(false); }} />
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Expiration (Optional)</label>
-              <input
-                type="datetime-local"
-                value={expiresAt}
-                onChange={(e) => { setExpiresAt(e.target.value); setGenerated(false) }}
-                className="w-full rounded-lg border border-border bg-secondary px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
-              />
+          {!isSplitMode ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Expiration (Optional)</label>
+                <input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => { setExpiresAt(e.target.value); setGenerated(false) }}
+                  className="w-full rounded-lg border border-border bg-secondary px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Max Uses (Optional)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 5"
+                  min="1"
+                  value={maxUses}
+                  onChange={(e) => { setMaxUses(e.target.value); setGenerated(false) }}
+                  className="w-full rounded-lg border border-border bg-secondary px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Max Uses (Optional)</label>
-              <input
-                type="number"
-                placeholder="e.g. 5"
-                min="1"
-                value={maxUses}
-                onChange={(e) => { setMaxUses(e.target.value); setGenerated(false) }}
-                className="w-full rounded-lg border border-border bg-secondary px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
-              />
-            </div>
-          </div>
+          ) : (
+            splitAmounts.length > 0 && (
+              <div className="space-y-4 border-t border-border pt-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-foreground">Individual Link Settings</h3>
+                  <span className="text-xs text-muted-foreground">Optional overrides per link</span>
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-3 pr-2" style={{ scrollbarWidth: 'thin' }}>
+                  {splitAmounts.map((amt, idx) => (
+                    <div key={idx} className="flex gap-3 items-end bg-background/50 p-3 rounded-lg border border-border animate-in fade-in slide-in-from-top-2">
+                      <div className="w-20 shrink-0">
+                        <label className="text-xs text-muted-foreground mb-1 block">Amount</label>
+                        <div className="text-sm font-semibold">{amt} USDC</div>
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground mb-1 block">Expires</label>
+                        <input
+                          type="datetime-local"
+                          value={splitExpiresAt[idx] || ''}
+                          onChange={(e) => {
+                            const newExp = [...splitExpiresAt]
+                            newExp[idx] = e.target.value
+                            setSplitExpiresAt(newExp)
+                            setGenerated(false)
+                          }}
+                          className="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                        />
+                      </div>
+                      <div className="w-24 shrink-0">
+                        <label className="text-xs text-muted-foreground mb-1 block">Max Uses</label>
+                        <input
+                          type="number"
+                          placeholder="Uses"
+                          min="1"
+                          value={splitMaxUses[idx] || ''}
+                          onChange={(e) => {
+                            const newUses = [...splitMaxUses]
+                            newUses[idx] = e.target.value
+                            setSplitMaxUses(newUses)
+                            setGenerated(false)
+                          }}
+                          className="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
 
           <button
             onClick={handleGenerate}
@@ -147,7 +210,7 @@ const CreatePage = () => {
             className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed shadow-glow"
           >
             {isCreatingLinks ? <Loader2 size={18} className="animate-spin" /> : <Link2 size={18} />}
-            {isSplitMode ? `Generate ${splitAmounts.length} Links` : 'Generate Pay-Link'}
+            {isSplitMode ? `Generate ${splitAmounts.length} Links` : 'Generate Pay Link'}
             {!isCreatingLinks && <ArrowRight size={16} />}
           </button>
         </div>
@@ -155,7 +218,7 @@ const CreatePage = () => {
         {generated && (
           <div ref={generatedCardRef} className="glass-card rounded-xl p-6 space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Your Pay-Link</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Your Pay Link</label>
               <div className="flex items-center gap-2">
                 <code className="flex-1 rounded-lg bg-secondary px-3 py-2.5 text-xs text-foreground break-all border border-border">
                   {payUrl}

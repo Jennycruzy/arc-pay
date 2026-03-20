@@ -92,7 +92,7 @@ const PayPage = () => {
       setMeta('og:image', ogUrl)
       setMeta('og:title', `Pay ${parseFloat(amount).toFixed(2)} USDC on Arc`)
       setMeta('og:description', `Payment request for ${parseFloat(amount).toFixed(2)} USDC on Arc Testnet`)
-      document.title = `Pay ${parseFloat(amount).toFixed(2)} USDC | Arc Pay-Link`
+      document.title = `Pay ${parseFloat(amount).toFixed(2)} USDC | Arc Pay Link`
     }
   }, [to, amount])
 
