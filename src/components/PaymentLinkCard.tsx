@@ -18,7 +18,7 @@ interface PaymentLinkCardProps {
 export function PaymentLinkCard({ linkData }: PaymentLinkCardProps) {
     const [copied, setCopied] = useState(false);
 
-    const payUrl = `${window.location.origin}/pay?link=${linkData.id}`;
+    const payUrl = `${window.location.origin}/pay?link=${linkData.id}&to=${linkData.receiver_wallet}&amount=${linkData.amount}`;
 
     const isExpired = linkData.expires_at ? new Date(linkData.expires_at) < new Date() : false;
     const isMaxed = linkData.max_uses !== null && linkData.current_uses! >= linkData.max_uses!;

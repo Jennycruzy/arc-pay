@@ -24,7 +24,8 @@ const PayPage = () => {
   const [amount, setAmount] = useState<string | null>(fallbackAmount)
   const [dbLinkError, setDbLinkError] = useState<string | null>(null)
   const [currentUses, setCurrentUses] = useState(0)
-  const [isLoadingLink, setIsLoadingLink] = useState(!!linkId)
+  const [isLoadingLink, setIsLoadingLink] = useState(!!linkId && (!fallbackTo || !fallbackAmount))
+  const [isVerifyingLink, setIsVerifyingLink] = useState(!!linkId)
 
   const [memo, setMemo] = useState('')
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
@@ -54,24 +55,24 @@ const PayPage = () => {
   useEffect(() => {
     const fetchLinkData = async () => {
       if (linkId) {
-        setIsLoadingLink(true)
+        if (!fallbackTo || !fallbackAmount) setIsLoadingLink(true);
+        setIsVerifyingLink(true);
         const linkData = await getLink(linkId);
         if (linkData) {
           if (linkData.expires_at && new Date(linkData.expires_at) < new Date()) {
             setDbLinkError('This payment link has expired.');
-            setIsLoadingLink(false); return;
-          }
-          if (linkData.max_uses !== null && linkData.current_uses !== undefined && linkData.current_uses >= linkData.max_uses) {
+          } else if (linkData.max_uses !== null && linkData.current_uses !== undefined && linkData.current_uses >= linkData.max_uses) {
             setDbLinkError('This payment link has reached its maximum number of uses.');
-            setIsLoadingLink(false); return;
+          } else {
+            if (!fallbackTo) setTo(linkData.receiver_wallet as `0x${string}`);
+            if (!fallbackAmount) setAmount(linkData.amount.toString());
+            setCurrentUses(linkData.current_uses || 0);
           }
-          setTo(linkData.receiver_wallet as `0x${string}`);
-          setAmount(linkData.amount.toString());
-          setCurrentUses(linkData.current_uses || 0);
         } else {
           setDbLinkError('Payment link not found.');
         }
-        setIsLoadingLink(false)
+        setIsLoadingLink(false);
+        setIsVerifyingLink(false);
       }
     };
     fetchLinkData();
@@ -282,11 +283,11 @@ const PayPage = () => {
             ) : (
               <button
                 onClick={handlePay}
-                disabled={isSending || isConfirming}
+                disabled={isSending || isConfirming || isVerifyingLink}
                 className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
               >
-                {(isSending || isConfirming) && <Loader2 size={18} className="animate-spin" />}
-                {isSending ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : `Pay ${parseFloat(amount).toFixed(2)} USDC`}
+                {(isSending || isConfirming || isVerifyingLink) && <Loader2 size={18} className="animate-spin" />}
+                {isVerifyingLink ? 'Verifying Link...' : isSending ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : `Pay ${parseFloat(amount!).toFixed(2)} USDC`}
               </button>
             )}
 

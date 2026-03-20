@@ -35,7 +35,7 @@ const CreatePage = () => {
 
   // Explicitly using your Vercel domain for legacy links
   const shareUrl = `https://arc-pay-link.vercel.app/api/share?to=${address}&amount=${amount}`
-  const payUrl = generatedLinkId ? `${window.location.origin}/pay?link=${generatedLinkId}` : shareUrl
+  const payUrl = generatedLinkId ? `${window.location.origin}/pay?link=${generatedLinkId}&to=${address}&amount=${amount}` : shareUrl
   const isValid = address.startsWith('0x') && address.length === 42 && (isSplitMode ? splitAmounts.length > 0 : parseFloat(amount) > 0)
 
   const handleGenerate = async () => {
