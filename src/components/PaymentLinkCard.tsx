@@ -50,9 +50,23 @@ export function PaymentLinkCard({ linkData }: PaymentLinkCardProps) {
             </div>
 
             <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-lg bg-secondary px-3 py-2.5 text-xs text-foreground truncate border border-border max-w-[200px] sm:max-w-full">
+                <a
+                    href={payUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 rounded-lg bg-secondary px-3 py-2.5 text-xs text-blue-400 hover:text-blue-300 hover:underline truncate border border-border max-w-[200px] sm:max-w-full"
+                >
                     {payUrl}
-                </code>
+                </a>
+                <a
+                    href={payUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded-lg border border-border bg-secondary p-2.5 text-foreground hover:bg-muted transition-colors inline-block"
+                    title="Open Link"
+                >
+                    <ExternalLink size={16} />
+                </a>
                 <button
                     onClick={handleCopy}
                     className="shrink-0 rounded-lg border border-border bg-secondary p-2.5 text-foreground hover:bg-muted transition-colors"
