@@ -1,7 +1,7 @@
 import { useSearchParams, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAccount, useConnect, useSendTransaction, useSwitchChain, usePublicClient } from 'wagmi'
-import { parseUnits } from 'viem'
+import { parseUnits, parseGwei } from 'viem'
 import { arcTestnet } from '@/lib/arcChain'
 import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
 import Confetti from 'react-confetti'
@@ -165,6 +165,11 @@ const PayPage = () => {
         to,
         value: amountInUnits,
         chain: arcTestnet,
+        // Arc Testnet strictly requires a minimum base fee to prevent spam. 
+        // 160 Gwei on Arc is exactly 0.00000016 USDC (true nanopayment fees).
+        // Without this, the transaction is underpriced and immediately dropped by the nodes (causing a 'fake hash').
+        maxFeePerGas: parseGwei('160'),
+        maxPriorityFeePerGas: parseGwei('160'),
       })
 
       setIsSending(false)
