@@ -337,7 +337,10 @@ const PayPage = () => {
               </button>
             ) : (
               <button
-                onClick={handlePay}
+                onClick={() => {
+                  console.log('🔴 BUTTON CLICKED!!!');
+                  handlePay();
+                }}
                 disabled={isSending || isConfirming || isVerifyingLink}
                 className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
               >
