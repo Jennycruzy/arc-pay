@@ -1,6 +1,6 @@
-import { useSearchParams, useNavigate, Link } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
+import { useAccount, useConnect, useWriteContract, useSwitchChain, useReadContract, usePublicClient } from 'wagmi'
 import { parseUnits } from 'viem'
 import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
@@ -14,7 +14,6 @@ const OG_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/og-im
 
 const PayPage = () => {
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
 
   const linkId = searchParams.get('link')
   const fallbackTo = searchParams.get('to') as `0x${string}` | null
@@ -26,100 +25,75 @@ const PayPage = () => {
   const [currentUses, setCurrentUses] = useState(0)
   const [isLoadingLink, setIsLoadingLink] = useState(!!linkId && (!fallbackTo || !fallbackAmount))
   const [isVerifyingLink, setIsVerifyingLink] = useState(!!linkId)
-
   const [memo, setMemo] = useState('')
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
-  const [confirmationTimeout, setConfirmationTimeout] = useState(false)
+
+  // Manual TX state — replaces useWaitForTransactionReceipt
+  const [txHash, setTxHash] = useState<`0x${string}` | undefined>(undefined)
+  const [isSending, setIsSending] = useState(false)
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [txError, setTxError] = useState<string | null>(null)
+
+  const [receiptGenerated, setReceiptGenerated] = useState(false)
+  const [receiptId, setReceiptId] = useState<string | null>(null)
 
   const { getLink, incrementUsage } = usePaymentLinks()
   const { createReceipt } = useReceipts()
 
-  // 1. Added chainId to check current network
   const { address, isConnected, chainId } = useAccount()
   const { connect, connectors, isPending: isConnecting } = useConnect()
-  // 2. Added useSwitchChain hook
   const { switchChain, isPending: isSwitching } = useSwitchChain()
-  // 3. Changed back to useWriteContract
-  const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash: txHash as `0x${string}` | undefined,
-    chainId: arcTestnet.id,
-    confirmations: 0,
-  })
+  const { writeContractAsync } = useWriteContract()
+  const publicClient = usePublicClient({ chainId: arcTestnet.id })
 
-  useEffect(() => {
-    if (txHash) {
-      console.log('✅ TX Hash received:', txHash);
-    }
-  }, [txHash]);
-
-  useEffect(() => {
-    if (isSending) {
-      console.log('📤 Transaction is being sent...');
-      toast.loading('Waiting for wallet confirmation...');
-    }
-  }, [isSending]);
-
-  useEffect(() => {
-    if (isConfirming) {
-      console.log('🔄 Transaction is confirming on chain...');
-      toast.loading('Payment confirming on blockchain...');
-    }
-  }, [isConfirming]);
-
-  useEffect(() => {
-    if (txError) {
-      console.error('❌ Transaction error:', txError);
-      const errorMessage = (txError as any).shortMessage || txError.message;
-      toast.error(errorMessage || 'Transaction failed');
-    }
-  }, [txError]);
-
-  // Watchdog: if we have a txHash but no receipt after 60s, show error
-  useEffect(() => {
-    if (!txHash || isSuccess || txError) {
-      setConfirmationTimeout(false);
-      return;
-    }
-    const timer = setTimeout(() => {
-      if (!isSuccess) {
-        setConfirmationTimeout(true);
-        console.warn('⚠️ Confirmation timeout — the transaction may be stuck or dropped by the network.');
-        toast.error('Confirmation timed out. Check the explorer or try again.');
-      }
-    }, 60000);
-    return () => clearTimeout(timer);
-  }, [txHash, isSuccess, txError]);
-
-  // Check if connected but on the wrong network
   const isWrongChain = isConnected && chainId !== arcTestnet.id
 
+  // Read sender's live USDC ERC-20 balance (6 decimals)
+  const { data: usdcBalance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: [
+      {
+        name: 'balanceOf',
+        type: 'function',
+        stateMutability: 'view',
+        inputs: [{ name: 'account', type: 'address' }],
+        outputs: [{ name: '', type: 'uint256' }],
+      },
+    ] as const,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address, refetchInterval: 5000 },
+  })
+
+  // Fetch link data
   useEffect(() => {
     const fetchLinkData = async () => {
       if (linkId) {
-        if (!fallbackTo || !fallbackAmount) setIsLoadingLink(true);
-        setIsVerifyingLink(true);
-        const linkData = await getLink(linkId);
+        if (!fallbackTo || !fallbackAmount) setIsLoadingLink(true)
+        setIsVerifyingLink(true)
+        const linkData = await getLink(linkId)
         if (linkData) {
           if (linkData.expires_at && new Date(linkData.expires_at) < new Date()) {
-            setDbLinkError('This payment link has expired.');
+            setDbLinkError('This payment link has expired.')
           } else if (linkData.max_uses !== null && linkData.current_uses !== undefined && linkData.current_uses >= linkData.max_uses) {
-            setDbLinkError('This payment link has reached its maximum number of uses.');
+            setDbLinkError('This payment link has reached its maximum number of uses.')
           } else {
-            if (!fallbackTo) setTo(linkData.receiver_wallet as `0x${string}`);
-            if (!fallbackAmount) setAmount(linkData.amount.toString());
-            setCurrentUses(linkData.current_uses || 0);
+            if (!fallbackTo) setTo(linkData.receiver_wallet as `0x${string}`)
+            if (!fallbackAmount) setAmount(linkData.amount.toString())
+            setCurrentUses(linkData.current_uses || 0)
           }
         } else {
-          setDbLinkError('Payment link not found.');
+          setDbLinkError('Payment link not found.')
         }
-        setIsLoadingLink(false);
-        setIsVerifyingLink(false);
+        setIsLoadingLink(false)
+        setIsVerifyingLink(false)
       }
-    };
-    fetchLinkData();
-  }, [linkId]);
+    }
+    fetchLinkData()
+  }, [linkId])
 
+  // OG meta tags
   useEffect(() => {
     if (to && amount) {
       const ogUrl = `${OG_FUNCTION_URL}?amount=${amount}&to=${to}`
@@ -139,43 +113,35 @@ const PayPage = () => {
     }
   }, [to, amount])
 
+  // Window resize
   useEffect(() => {
     const onResize = () => setWindowSize({ w: window.innerWidth, h: window.innerHeight })
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const [receiptGenerated, setReceiptGenerated] = useState(false)
-  const [receiptId, setReceiptId] = useState<string | null>(null)
-
+  // On success: create receipt
   useEffect(() => {
     if (isSuccess && !receiptGenerated && to && amount && txHash && address) {
-      setReceiptGenerated(true);
+      setReceiptGenerated(true)
       const logPayment = async () => {
         try {
-          if (linkId) {
-            await incrementUsage(linkId, currentUses);
-          }
-
+          if (linkId) await incrementUsage(linkId, currentUses)
           const receipt = await createReceipt({
             sender: address,
             receiver: to,
             amount: parseFloat(amount),
             tx_hash: txHash,
-            status: 'paid'
-          });
-
-          if (receipt) {
-            setReceiptId(receipt.id);
-          }
+            status: 'paid',
+          })
+          if (receipt) setReceiptId(receipt.id)
         } catch (error) {
-          console.error('Error creating receipt:', error);
+          console.error('Error creating receipt:', error)
         }
-      };
-
-      logPayment();
+      }
+      logPayment()
     }
-  }, [isSuccess, receiptGenerated, to, amount, txHash, linkId, address, currentUses, incrementUsage, createReceipt]);
+  }, [isSuccess, receiptGenerated, to, amount, txHash, linkId, address, currentUses, incrementUsage, createReceipt])
 
   if (isLoadingLink) {
     return (
@@ -197,48 +163,70 @@ const PayPage = () => {
   }
 
   const handlePay = async () => {
+    if (!address || !to || !amount || !publicClient) return
+
+    setTxError(null)
+    setIsSuccess(false)
+    setTxHash(undefined)
+
+    const amountInUnits = parseUnits(amount, 6)
+    console.log('🚀 Initiating payment...')
+    console.log('📊 Amount in units (6 dec):', amountInUnits.toString())
+    console.log('💳 USDC ERC-20 Balance:', usdcBalance?.toString() ?? 'unknown')
+
     try {
-      console.log('🚀 Initiating payment...');
-      console.log('📍 To:', to);
-      console.log('💰 Amount:', amount);
-      console.log('🔗 Address:', address);
-      console.log('⛓️ Chain:', arcTestnet);
+      setIsSending(true)
+      toast.loading('Confirm in your wallet...')
 
-      if (!address) {
-        toast.error('Wallet not connected');
-        return;
-      }
-
-      if (!to || !amount) {
-        toast.error('Missing payment details');
-        return;
-      }
-
-      // Reverting to ERC-20 interface with 6 decimals
-      const amountInUnits = parseUnits(amount, 6);
-      console.log('📊 Amount in units:', amountInUnits.toString());
-
-      console.log('📤 Sending transaction...');
-      writeContract({
+      const hash = await writeContractAsync({
         account: address,
         address: USDC_ADDRESS,
         abi: erc20Abi,
         functionName: 'transfer',
         args: [to, amountInUnits],
         chain: arcTestnet,
-      });
+      })
 
-      console.log('✅ Transaction initiated');
-    } catch (error) {
-      console.error('❌ Error initiating payment:', error);
-      toast.error(`Failed to initiate payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsSending(false)
+      setTxHash(hash)
+      console.log('✅ TX Hash:', hash)
+      toast.dismiss()
+      toast.loading('Payment confirming on blockchain...')
+      setIsConfirming(true)
+
+      // Use publicClient directly — reliable polling with fallback transport
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        confirmations: 0,
+        pollingInterval: 1000,
+        timeout: 90_000,
+      })
+
+      setIsConfirming(false)
+
+      if (receipt.status === 'success') {
+        console.log('🎉 Transaction confirmed!')
+        toast.dismiss()
+        toast.success('Payment confirmed!')
+        setIsSuccess(true)
+      } else {
+        console.error('❌ Transaction reverted:', receipt)
+        setTxError('Transaction was reverted by the contract. Check your USDC balance.')
+        toast.dismiss()
+        toast.error('Transaction reverted.')
+      }
+    } catch (err: any) {
+      setIsSending(false)
+      setIsConfirming(false)
+      const msg = err?.shortMessage || err?.message || 'Transaction failed'
+      console.error('❌ Error:', msg, err)
+      setTxError(msg)
+      toast.dismiss()
+      toast.error(msg)
     }
   }
 
   const shortAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`
-
-  // Format the error message to be readable
-  const errorMessage = txError ? (txError as any).shortMessage || txError.message : null
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 relative">
@@ -303,10 +291,16 @@ const PayPage = () => {
           <div className="glass-card rounded-xl p-6 space-y-5 shadow-glow-lg">
             <div className="flex items-center gap-3 rounded-lg bg-secondary p-3 border border-border">
               <DollarSign size={18} className="text-muted-foreground" />
-              <div>
+              <div className="flex-1">
                 <p className="text-xs text-muted-foreground">You're paying</p>
                 <p className="text-foreground font-semibold">{parseFloat(amount).toFixed(2)} USDC</p>
               </div>
+              {isConnected && usdcBalance !== undefined && (
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Your balance</p>
+                  <p className="text-xs font-mono text-foreground">{(Number(usdcBalance) / 1_000_000).toFixed(2)} USDC</p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -323,26 +317,20 @@ const PayPage = () => {
               />
             </div>
 
-            {/* Error Display Box */}
-            {errorMessage && (
+            {txError && (
               <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs break-words animate-in fade-in">
                 <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                <p>{errorMessage}</p>
+                <p>{txError}</p>
               </div>
             )}
 
-            {/* Dynamic Button Rendering */}
             {!isConnected ? (
               <button
                 onClick={() => connect({ connector: connectors[0] })}
                 disabled={isConnecting}
                 className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
               >
-                {isConnecting ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <Wallet size={18} />
-                )}
+                {isConnecting ? <Loader2 size={18} className="animate-spin" /> : <Wallet size={18} />}
                 {isConnecting ? 'Connecting...' : 'Connect Wallet'}
               </button>
             ) : isWrongChain ? (
@@ -354,35 +342,23 @@ const PayPage = () => {
                 {isSwitching && <Loader2 size={18} className="animate-spin" />}
                 {isSwitching ? 'Switching...' : 'Switch to Arc Testnet'}
               </button>
-            ) : confirmationTimeout ? (
-              <div className="space-y-2">
-                <a
-                  href={`https://testnet.arcscan.app/tx/${txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full rounded-lg border border-border bg-secondary py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  Check on Explorer
-                  <ExternalLink size={14} />
-                </a>
-                <button
-                  onClick={() => { setConfirmationTimeout(false); handlePay(); }}
-                  className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] shadow-glow"
-                >
-                  Try Again
-                </button>
-              </div>
             ) : (
               <button
                 onClick={() => {
-                  console.log('🔴 BUTTON CLICKED!!!');
-                  handlePay();
+                  console.log('🔴 BUTTON CLICKED!!!')
+                  handlePay()
                 }}
                 disabled={isSending || isConfirming || isVerifyingLink}
                 className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60 shadow-glow"
               >
                 {(isSending || isConfirming || isVerifyingLink) && <Loader2 size={18} className="animate-spin" />}
-                {isVerifyingLink ? 'Verifying Link...' : isSending ? 'Confirm in Wallet...' : isConfirming ? 'Confirming...' : `Pay ${parseFloat(amount!).toFixed(2)} USDC`}
+                {isVerifyingLink
+                  ? 'Verifying Link...'
+                  : isSending
+                    ? 'Confirm in Wallet...'
+                    : isConfirming
+                      ? 'Confirming...'
+                      : `Pay ${parseFloat(amount!).toFixed(2)} USDC`}
               </button>
             )}
 
