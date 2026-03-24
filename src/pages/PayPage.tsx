@@ -1,7 +1,7 @@
 import { useSearchParams, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useAccount, useConnect, useWriteContract, useSwitchChain, useReadContract, usePublicClient } from 'wagmi'
-import { parseUnits } from 'viem'
+import { parseUnits, parseGwei } from 'viem'
 import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
 import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
@@ -185,6 +185,9 @@ const PayPage = () => {
         functionName: 'transfer',
         args: [to, amountInUnits],
         chain: arcTestnet,
+        // Force high gas to satisfy Arc Testnet's 160 Gwei minimum base fee
+        maxFeePerGas: parseGwei('500'),
+        maxPriorityFeePerGas: parseGwei('500'),
       })
 
       setIsSending(false)
