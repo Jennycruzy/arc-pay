@@ -8,6 +8,6 @@ export const config = createConfig({
     injected(),
   ],
   transports: {
-    [arcTestnet.id]: http(),
+    [arcTestnet.id]: http('https://rpc.testnet.arc.network'),
   },
 })

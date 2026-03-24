@@ -42,7 +42,8 @@ const PayPage = () => {
   const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ 
     hash: txHash as `0x${string}` | undefined,
-    confirmations: 2 
+    chainId: arcTestnet.id,
+    confirmations: 1
   })
 
   useEffect(() => {
