@@ -40,10 +40,13 @@ const PayPage = () => {
   const { switchChain, isPending: isSwitching } = useSwitchChain()
   // 3. Added error extraction from useWriteContract
   const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ 
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash as `0x${string}` | undefined,
     chainId: arcTestnet.id,
-    confirmations: 1
+    confirmations: 0,
+    query: {
+      pollingInterval: 2000,
+    }
   })
 
   useEffect(() => {
@@ -186,7 +189,7 @@ const PayPage = () => {
       console.log('💰 Amount:', amount);
       console.log('🔗 Address:', address);
       console.log('⛓️ Chain:', arcTestnet);
-      
+
       if (!address) {
         toast.error('Wallet not connected');
         return;
@@ -209,7 +212,7 @@ const PayPage = () => {
         args: [to, amountInUnits],
         chain: arcTestnet,
       });
-      
+
       console.log('✅ Transaction initiated');
     } catch (error) {
       console.error('❌ Error initiating payment:', error);
