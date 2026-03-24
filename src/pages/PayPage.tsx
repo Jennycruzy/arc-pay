@@ -1,8 +1,7 @@
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
+import { useAccount, useConnect, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
 import { parseUnits } from 'viem'
-import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
 import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
 import Confetti from 'react-confetti'
@@ -38,8 +37,8 @@ const PayPage = () => {
   const { connect, connectors, isPending: isConnecting } = useConnect()
   // 2. Added useSwitchChain hook
   const { switchChain, isPending: isSwitching } = useSwitchChain()
-  // 3. Added error extraction from useWriteContract
-  const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
+  // 3. Changed to useSendTransaction for native transfer on Arc Testnet
+  const { sendTransaction, data: txHash, isPending: isSending, error: txError } = useSendTransaction()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash as `0x${string}` | undefined,
     chainId: arcTestnet.id,
@@ -200,16 +199,15 @@ const PayPage = () => {
         return;
       }
 
-      const amountInUnits = parseUnits(amount, 6);
+      // Native USDC on Arc Testnet has 18 decimals
+      const amountInUnits = parseUnits(amount, 18);
       console.log('📊 Amount in units:', amountInUnits.toString());
 
       console.log('📤 Sending transaction...');
-      writeContract({
+      sendTransaction({
         account: address,
-        address: USDC_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'transfer',
-        args: [to, amountInUnits],
+        to: to,
+        value: amountInUnits,
         chain: arcTestnet,
       });
 
