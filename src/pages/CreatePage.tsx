@@ -162,12 +162,11 @@ const CreatePage = () => {
           </button>
 
           <button
-            onClick={handleRefresh}
-            disabled={isCreatingLinks}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-all disabled:opacity-40"
+            onClick={() => window.location.reload()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-all"
           >
-            {isCreatingLinks ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
-            Regenerate
+            <RefreshCw size={18} />
+            Refresh
           </button>
         </div>
 

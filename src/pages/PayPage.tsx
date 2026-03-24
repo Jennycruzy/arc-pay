@@ -40,10 +40,34 @@ const PayPage = () => {
   const { switchChain, isPending: isSwitching } = useSwitchChain()
   // 3. Added error extraction from useWriteContract
   const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ 
+    hash: txHash as `0x${string}` | undefined,
+    confirmations: 2 
+  })
+
+  useEffect(() => {
+    if (txHash) {
+      console.log('✅ TX Hash received:', txHash);
+    }
+  }, [txHash]);
+
+  useEffect(() => {
+    if (isSending) {
+      console.log('📤 Transaction is being sent...');
+      toast.loading('Waiting for wallet confirmation...');
+    }
+  }, [isSending]);
+
+  useEffect(() => {
+    if (isConfirming) {
+      console.log('🔄 Transaction is confirming on chain...');
+      toast.loading('Payment confirming on blockchain...');
+    }
+  }, [isConfirming]);
 
   useEffect(() => {
     if (txError) {
+      console.error('❌ Transaction error:', txError);
       const errorMessage = (txError as any).shortMessage || txError.message;
       toast.error(errorMessage || 'Transaction failed');
     }
@@ -110,26 +134,30 @@ const PayPage = () => {
     if (isSuccess && !receiptGenerated && to && amount && txHash && address) {
       setReceiptGenerated(true);
       const logPayment = async () => {
-        if (linkId) {
-          await incrementUsage(linkId, currentUses);
-        }
+        try {
+          if (linkId) {
+            await incrementUsage(linkId, currentUses);
+          }
 
-        const receipt = await createReceipt({
-          sender: address,
-          receiver: to,
-          amount: parseFloat(amount),
-          tx_hash: txHash,
-          status: 'paid'
-        });
+          const receipt = await createReceipt({
+            sender: address,
+            receiver: to,
+            amount: parseFloat(amount),
+            tx_hash: txHash,
+            status: 'paid'
+          });
 
-        if (receipt) {
-          setReceiptId(receipt.id);
+          if (receipt) {
+            setReceiptId(receipt.id);
+          }
+        } catch (error) {
+          console.error('Error creating receipt:', error);
         }
       };
 
       logPayment();
     }
-  }, [isSuccess, receiptGenerated, to, amount, txHash, linkId, address, currentUses]);
+  }, [isSuccess, receiptGenerated, to, amount, txHash, linkId, address, currentUses, incrementUsage, createReceipt]);
 
   if (isLoadingLink) {
     return (
@@ -150,15 +178,42 @@ const PayPage = () => {
     )
   }
 
-  const handlePay = () => {
-    writeContract({
-      address: USDC_ADDRESS,
-      abi: erc20Abi,
-      functionName: 'transfer',
-      args: [to, parseUnits(amount, 6)],
-      chain: arcTestnet,
-      account: address,
-    })
+  const handlePay = async () => {
+    try {
+      console.log('🚀 Initiating payment...');
+      console.log('📍 To:', to);
+      console.log('💰 Amount:', amount);
+      console.log('🔗 Address:', address);
+      console.log('⛓️ Chain:', arcTestnet);
+      
+      if (!address) {
+        toast.error('Wallet not connected');
+        return;
+      }
+
+      if (!to || !amount) {
+        toast.error('Missing payment details');
+        return;
+      }
+
+      const amountInUnits = parseUnits(amount, 6);
+      console.log('📊 Amount in units:', amountInUnits.toString());
+
+      console.log('📤 Sending transaction...');
+      writeContract({
+        account: address,
+        address: USDC_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [to, amountInUnits],
+        chain: arcTestnet,
+      });
+      
+      console.log('✅ Transaction initiated');
+    } catch (error) {
+      console.error('❌ Error initiating payment:', error);
+      toast.error(`Failed to initiate payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   const shortAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`
