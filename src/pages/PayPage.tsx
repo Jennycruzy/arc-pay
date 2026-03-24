@@ -1,7 +1,8 @@
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useSendTransaction, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
+import { useAccount, useConnect, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi'
 import { parseUnits } from 'viem'
+import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
 import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
 import Confetti from 'react-confetti'
@@ -28,6 +29,7 @@ const PayPage = () => {
 
   const [memo, setMemo] = useState('')
   const [windowSize, setWindowSize] = useState({ w: window.innerWidth, h: window.innerHeight })
+  const [confirmationTimeout, setConfirmationTimeout] = useState(false)
 
   const { getLink, incrementUsage } = usePaymentLinks()
   const { createReceipt } = useReceipts()
@@ -37,15 +39,12 @@ const PayPage = () => {
   const { connect, connectors, isPending: isConnecting } = useConnect()
   // 2. Added useSwitchChain hook
   const { switchChain, isPending: isSwitching } = useSwitchChain()
-  // 3. Changed to useSendTransaction for native transfer on Arc Testnet
-  const { sendTransaction, data: txHash, isPending: isSending, error: txError } = useSendTransaction()
+  // 3. Changed back to useWriteContract
+  const { writeContract, data: txHash, isPending: isSending, error: txError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: txHash as `0x${string}` | undefined,
     chainId: arcTestnet.id,
     confirmations: 0,
-    query: {
-      pollingInterval: 2000,
-    }
   })
 
   useEffect(() => {
@@ -75,6 +74,22 @@ const PayPage = () => {
       toast.error(errorMessage || 'Transaction failed');
     }
   }, [txError]);
+
+  // Watchdog: if we have a txHash but no receipt after 60s, show error
+  useEffect(() => {
+    if (!txHash || isSuccess || txError) {
+      setConfirmationTimeout(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (!isSuccess) {
+        setConfirmationTimeout(true);
+        console.warn('⚠️ Confirmation timeout — the transaction may be stuck or dropped by the network.');
+        toast.error('Confirmation timed out. Check the explorer or try again.');
+      }
+    }, 60000);
+    return () => clearTimeout(timer);
+  }, [txHash, isSuccess, txError]);
 
   // Check if connected but on the wrong network
   const isWrongChain = isConnected && chainId !== arcTestnet.id
@@ -199,15 +214,17 @@ const PayPage = () => {
         return;
       }
 
-      // Native USDC on Arc Testnet has 18 decimals
-      const amountInUnits = parseUnits(amount, 18);
+      // Reverting to ERC-20 interface with 6 decimals
+      const amountInUnits = parseUnits(amount, 6);
       console.log('📊 Amount in units:', amountInUnits.toString());
 
       console.log('📤 Sending transaction...');
-      sendTransaction({
+      writeContract({
         account: address,
-        to: to,
-        value: amountInUnits,
+        address: USDC_ADDRESS,
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [to, amountInUnits],
         chain: arcTestnet,
       });
 
@@ -337,6 +354,24 @@ const PayPage = () => {
                 {isSwitching && <Loader2 size={18} className="animate-spin" />}
                 {isSwitching ? 'Switching...' : 'Switch to Arc Testnet'}
               </button>
+            ) : confirmationTimeout ? (
+              <div className="space-y-2">
+                <a
+                  href={`https://testnet.arcscan.app/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full rounded-lg border border-border bg-secondary py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+                >
+                  Check on Explorer
+                  <ExternalLink size={14} />
+                </a>
+                <button
+                  onClick={() => { setConfirmationTimeout(false); handlePay(); }}
+                  className="w-full gradient-primary text-primary-foreground font-semibold rounded-lg py-3 flex items-center justify-center gap-2 transition-all hover:opacity-90 active:scale-[0.98] shadow-glow"
+                >
+                  Try Again
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => {

@@ -9,7 +9,14 @@ export const arcTestnet = defineChain({
     symbol: 'ETH',
   },
   rpcUrls: {
-    default: { http: ['https://rpc.testnet.arc.network'] },
+    default: {
+      http: [
+        'https://rpc.testnet.arc.network',
+        'https://rpc.blockdaemon.testnet.arc.network',
+        'https://arc-testnet.drpc.org',
+        'https://rpc.quicknode.testnet.arc.network',
+      ],
+    },
   },
   blockExplorers: {
     default: { name: 'ArcScan', url: 'https://testnet.arcscan.app' },
