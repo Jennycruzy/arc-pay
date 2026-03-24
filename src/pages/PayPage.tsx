@@ -1,8 +1,7 @@
 import { useSearchParams, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useWriteContract, useSwitchChain, useReadContract, usePublicClient } from 'wagmi'
+import { useAccount, useConnect, useSendTransaction, useSwitchChain, usePublicClient } from 'wagmi'
 import { parseUnits, parseGwei } from 'viem'
-import { erc20Abi, USDC_ADDRESS } from '@/lib/contracts'
 import { arcTestnet } from '@/lib/arcChain'
 import { Loader2, Wallet, ExternalLink, MessageSquare, CheckCircle2, DollarSign, AlertCircle, Receipt as ReceiptIcon } from 'lucide-react'
 import Confetti from 'react-confetti'
@@ -44,27 +43,11 @@ const PayPage = () => {
   const { address, isConnected, chainId } = useAccount()
   const { connect, connectors, isPending: isConnecting } = useConnect()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
-  const { writeContractAsync } = useWriteContract()
+  // Reverting to Native SendTransaction per user requirement for "USDC on Arc"
+  const { sendTransactionAsync } = useSendTransaction()
   const publicClient = usePublicClient({ chainId: arcTestnet.id })
 
   const isWrongChain = isConnected && chainId !== arcTestnet.id
-
-  // Read sender's live USDC ERC-20 balance (6 decimals)
-  const { data: usdcBalance } = useReadContract({
-    address: USDC_ADDRESS,
-    abi: [
-      {
-        name: 'balanceOf',
-        type: 'function',
-        stateMutability: 'view',
-        inputs: [{ name: 'account', type: 'address' }],
-        outputs: [{ name: '', type: 'uint256' }],
-      },
-    ] as const,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address, refetchInterval: 5000 },
-  })
 
   // Fetch link data
   useEffect(() => {
@@ -169,21 +152,18 @@ const PayPage = () => {
     setIsSuccess(false)
     setTxHash(undefined)
 
-    const amountInUnits = parseUnits(amount, 6)
+    // Native USDC on Arc uses 18 decimals
+    const amountInUnits = parseUnits(amount, 18)
     console.log('🚀 Initiating payment...')
-    console.log('📊 Amount in units (6 dec):', amountInUnits.toString())
-    console.log('💳 USDC ERC-20 Balance:', usdcBalance?.toString() ?? 'unknown')
+    console.log('📊 Amount in native units (18 dec):', amountInUnits.toString())
 
     try {
       setIsSending(true)
       toast.loading('Confirm in your wallet...')
 
-      const hash = await writeContractAsync({
-        account: address,
-        address: USDC_ADDRESS,
-        abi: erc20Abi,
-        functionName: 'transfer',
-        args: [to, amountInUnits],
+      const hash = await sendTransactionAsync({
+        to,
+        value: amountInUnits,
         chain: arcTestnet,
         // Force high gas to satisfy Arc Testnet's 160 Gwei minimum base fee
         maxFeePerGas: parseGwei('500'),
@@ -197,12 +177,12 @@ const PayPage = () => {
       toast.loading('Payment confirming on blockchain...')
       setIsConfirming(true)
 
-      // Use publicClient directly — reliable polling with fallback transport
+      // Reliable polling with timeout so we don't hang indefinitely
       const receipt = await publicClient.waitForTransactionReceipt({
         hash,
-        confirmations: 0,
+        confirmations: 1,
         pollingInterval: 1000,
-        timeout: 90_000,
+        timeout: 90000, // 90 second timeout
       })
 
       setIsConfirming(false)
@@ -214,7 +194,7 @@ const PayPage = () => {
         setIsSuccess(true)
       } else {
         console.error('❌ Transaction reverted:', receipt)
-        setTxError('Transaction was reverted by the contract. Check your USDC balance.')
+        setTxError('Transaction was reverted or failed on chain.')
         toast.dismiss()
         toast.error('Transaction reverted.')
       }
@@ -298,12 +278,6 @@ const PayPage = () => {
                 <p className="text-xs text-muted-foreground">You're paying</p>
                 <p className="text-foreground font-semibold">{parseFloat(amount).toFixed(2)} USDC</p>
               </div>
-              {isConnected && usdcBalance !== undefined && (
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Your balance</p>
-                  <p className="text-xs font-mono text-foreground">{(Number(usdcBalance) / 1_000_000).toFixed(2)} USDC</p>
-                </div>
-              )}
             </div>
 
             <div className="space-y-2">
